@@ -3,7 +3,7 @@ name: read time sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: "0 */3 * * *"
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +18,7 @@ jobs:
       CC_URL: ${{ secrets.CC_URL }}
       CC_ID: ${{ secrets.CC_ID }}
       CC_PASSWORD: ${{ secrets.CC_PASSWORD }}
+      HEATMAP_BLOCK_ID: ${{ secrets.HEATMAP_BLOCK_ID }}
       BOOK_DATABASE_NAME: ${{ vars.BOOK_DATABASE_NAME }}
       AUTHOR_DATABASE_NAME: ${{ vars.AUTHOR_DATABASE_NAME }}
       CATEGORY_DATABASE_NAME: ${{ vars.CATEGORY_DATABASE_NAME }}
@@ -30,127 +31,50 @@ jobs:
       DAY_DATABASE_NAME: ${{ vars.DAY_DATABASE_NAME }}
       REF: ${{ github.ref }}
       REPOSITORY: ${{ github.repository }}
-      YEAR: ${{ vars.YEAR || '2024' }}
-      ENABLE_HEATMAP: ${{ vars.ENABLE_HEATMAP || 'true' }}
+      YEAR: ${{ vars.YEAR }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
-      
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # 明确安装 github-heatmap
-          pip install github-heatmap
-      
-      - name: Verify Installation
+      - name: Remove folder
+        run: rm -rf ./OUT_FOLDER
+      - name: Set default year if not provided
+        run: echo "YEAR=$(date +"%Y")" >> $GITHUB_ENV
+        if: env.YEAR == ''
+      - name: weread heatmap
         run: |
-          echo "🔍 验证安装..."
-          echo "Python 包列表:"
-          pip list | grep -i heatmap || echo "没有找到 heatmap 相关包"
-          
-          echo "尝试导入模块:"
-          python -c "import github_heatmap; print('✅ github_heatmap 模块可以导入')" || echo "❌ 无法导入 github_heatmap 模块"
-          
-          echo "检查模块版本:"
-          python -c "import github_heatmap; print(f'版本: {github_heatmap.__version__}')" 2>/dev/null || echo "无法获取版本"
-      
-      # 确保脚本有执行权限
-      - name: Make scripts executable
+          github_heatmap weread  --year $YEAR  --me "${{secrets.NAME}}" --without-type-name --background-color=${{ vars.background_color||'#FFFFFF'}} --track-color=${{ vars.track_color||'#ACE7AE'}} --special-color1=${{ vars.special_color||'#69C16E'}} --special-color2=${{ vars.special_color2||'#549F57'}} --dom-color=${{ vars.dom_color||'#EBEDF0'}} --text-color=${{ vars.text_color||'#000000'}}
+      - name: Skip Heatmap
+        if: always()
         run: |
-          chmod +x scripts/*.py || echo "没有找到 scripts 目录"
-      
-      # 验证微信读书 Cookie
-      - name: Validate Weread Cookie
-        id: validate_cookie
+          echo "热力图功能暂时禁用"
+          mkdir -p OUT_FOLDER
+          echo "热力图生成已跳过 - 命令不可用" > OUT_FOLDER/skip_reason.txt
+          # 创建一个假的 SVG 文件用于测试
+          echo '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="10" y="50">热力图已禁用</text></svg>' > OUT_FOLDER/placeholder.svg
+      - name: Rename weread.svg to a random name
         run: |
-          if [ -f "scripts/validate_cookie.py" ]; then
-            python scripts/validate_cookie.py
-          else
-            echo "⚠️ validate_cookie.py 不存在，跳过验证"
-          fi
-      
-      # 获取微信读书用户 ID
-      - name: Get Weread User ID
-        id: get_user_id
+          cd OUT_FOLDER
+          find . -type f ! -name "weread.svg" -exec rm -f {} +
+          cd ..
+          RANDOM_FILENAME=$(uuidgen).svg
+          mv ./OUT_FOLDER/weread.svg ./OUT_FOLDER/$RANDOM_FILENAME
+          echo "Renamed file to $RANDOM_FILENAME"
+      - name: push
         run: |
-          if [ -f "scripts/get_user_id.py" ]; then
-            USER_ID=$(python scripts/get_user_id.py)
-            echo "USER_ID=$USER_ID" >> $GITHUB_ENV
-            echo "user_id=$USER_ID" >> $GITHUB_OUTPUT
-            echo "获取到的用户ID: $USER_ID"
-          else
-            echo "❌ get_user_id.py 不存在，使用备用方法"
-            # 备用方法：从环境变量获取
-            if [ -n "${{ secrets.NAME }}" ]; then
-              echo "USER_ID=${{ secrets.NAME }}" >> $GITHUB_ENV
-              echo "使用 secrets.NAME: ${{ secrets.NAME }}"
-            else
-              echo "USER_ID=" >> $GITHUB_ENV
-              echo "⚠️ 无法获取用户ID"
-            fi
-          fi
-      
-      # 生成热力图 - 使用 Python 模块方式
-      - name: Generate Heatmap
-        if: env.ENABLE_HEATMAP == 'true' && env.USER_ID != ''
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m 'add new heatmap' || echo "nothing to commit"
+          git push || echo "nothing to push"
+      - name: read time sync
         run: |
-          echo "🎨 生成微信读书热力图..."
-          echo "用户ID: $USER_ID"
-          echo "年份: $YEAR"
-          
-          # 创建输出目录
-          mkdir -p ./OUT_FOLDER
-          
-          # 使用 Python 模块方式运行（这是最可靠的方法）
-          python -m github_heatmap weread \
-            --year $YEAR \
-            --me "$USER_ID" \
-            --without-type-name \
-            --background-color=${{ vars.background_color || '#FFFFFF' }} \
-            --track-color=${{ vars.track_color || '#ACE7AE' }} \
-            --special-color1=${{ vars.special_color || '#69C16E' }} \
-            --special-color2=${{ vars.special_color2 || '#549F57' }} \
-            --dom-color=${{ vars.dom_color || '#EBEDF0' }} \
-            --text-color=${{ vars.text_color || '#000000' }}
-          
-          # 检查输出
-          echo "📁 检查输出文件:"
-          ls -la ./OUT_FOLDER/ 2>/dev/null || echo "OUT_FOLDER 目录不存在"
-          
-          if [ -f "./OUT_FOLDER/weread.svg" ]; then
-            echo "✅ 热力图生成成功: ./OUT_FOLDER/weread.svg"
-            echo "文件大小: $(wc -c < ./OUT_FOLDER/weread.svg) 字节"
-          else
-            echo "❌ 热力图生成失败"
-            echo "尝试查找其他输出位置:"
-            find . -name "*.svg" -type f 2>/dev/null | head -10 || echo "没有找到 SVG 文件"
-          fi
+          read_time
       
-      # 处理热力图文件
-      - name: Process Heatmap File
-        if: env.ENABLE_HEATMAP == 'true' && env.USER_ID != ''
-        run: |
-          if [ -f "./OUT_FOLDER/weread.svg" ]; then
-            RANDOM_FILENAME=$(uuidgen).svg
-            mv ./OUT_FOLDER/weread.svg ./OUT_FOLDER/$RANDOM_FILENAME
-            echo "✅ 重命名热力图文件为: $RANDOM_FILENAME"
-          else
-            echo "⚠️ 未找到 weread.svg 文件，跳过重命名"
-          fi
-      
-      # 主要的同步任务
-      - name: weread book sync
-        run: |
-          echo "开始书籍同步..."
-          book || echo "书籍同步完成"
-      
-      - name: weread sync
-        run: |
-          echo "开始笔记同步..."
-          weread || echo "笔记同步完成"
