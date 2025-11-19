@@ -1,5 +1,10 @@
 # 将微信读书划线和笔记同步到Notion
-| <div align="center"><img src="[https://github.com/Annahuangna/weread2notion/blob/main/asset/cover.png]" width="50%"></div> | 
+<p align="center"> 
+  <kbd>
+    <a href="https://annahuangna.github.io/" target="_blank"><img src="asset/cover.png">
+  </a>
+  </kbd>
+</p>
 
 
 
