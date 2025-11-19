@@ -213,6 +213,21 @@ def get_notebooklist():
     return None
 
 
+def get_sort():
+    """获取database中的最新时间"""
+    filter = {"property": "Sort", "number": {"is_not_empty": True}}
+    sorts = [
+        {
+            "property": "Sort",
+            "direction": "descending",
+        }
+    ]
+    response = client.databases.query(
+        database_id=database_id, filter=filter, sorts=sorts, page_size=1
+    )
+    if len(response.get("results")) == 1:
+        return response.get("results")[0].get("properties").get("Sort").get("number")
+    return 0
 
 
 def get_children(chapter, summary, bookmark_list):
@@ -381,12 +396,13 @@ if __name__ == "__main__":
     session.cookies = parse_cookie_string(weread_cookie)
     client = Client(auth=notion_token, log_level=logging.ERROR)
     session.get(WEREAD_URL)
-   
+    latest_sort = get_sort()
     books = get_notebooklist()
     if books != None:
         for index, book in enumerate(books):
             sort = book["sort"]
-           
+            if sort <= latest_sort:
+                continue
             book = book.get("book")
             title = book.get("title")
             cover = book.get("cover").replace("/s_", "/t7_")
